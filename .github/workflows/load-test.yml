@@ -1,10 +1,10 @@
-name: Load Test with k6
+name: Run k6 Load Test on ECS
 
 on:
   workflow_dispatch:
     inputs:
       script_name:
-        description: "Catalog Service Load Test"
+        description: "Script de teste (dentro do container)"
         required: true
         default: "load-test.js"
       rps_target_1:
@@ -12,7 +12,7 @@ on:
         required: true
         default: "1"
       duration_target_1:
-        description: "Duração RAMP_UP (ex: 30s)"
+        description: "Duração RAMP_UP"
         required: true
         default: "3s"
       rps_target_2:
@@ -20,7 +20,7 @@ on:
         required: true
         default: "3"
       duration_target_2:
-        description: "Duração TARGET (ex: 5m)"
+        description: "Duração TARGET"
         required: true
         default: "10s"
       rps_target_3:
@@ -28,87 +28,48 @@ on:
         required: true
         default: "1"
       duration_target_3:
-        description: "Duração RAMP_DOWN (ex: 30s)"
+        description: "Duração RAMP_DOWN"
         required: true
         default: "3s"
 
-permissions:
-  id-token: write
-  pull-requests: write
-  contents: write
-  statuses: write
-          
 jobs:
-  load-test:
-    runs-on: ubuntu-22.04
+  run-load-test:
+    runs-on: ubuntu-latest
+    environment: production
+
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install k6 (official repository)
-        run: |
-          sudo apt update
-          sudo apt install -y ca-certificates gnupg curl
-          curl -fsSL https://dl.k6.io/key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list > /dev/null
-          sudo apt update
-          sudo apt install -y k6
-
-      - name: Configure AWS Credentials
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_DEV }}:role/ze-catalog-service-load-test
-          role-session-name: ze-catalog-service-load-test
-          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
 
-      - name: Validate AWS Connection
-        run: |
-          echo "Validando conexão com AWS..."
-          aws sts get-caller-identity
-          echo "✅ Conexão AWS validada com sucesso!"
-
-      - name: Run k6 Load Test
-        run: |
-          mkdir -p results  
-          k6 run test/${{ github.event.inputs.script_name }} \
-            --env RPS_RAMP_UP=${{ github.event.inputs.rps_target_1 }} \
-            --env DURATION_RAMP_UP=${{ github.event.inputs.duration_target_1 }} \
-            --env RPS_TARGET=${{ github.event.inputs.rps_target_2 }} \
-            --env DURATION_TARGET=${{ github.event.inputs.duration_target_2 }} \
-            --env RPS_RAMP_DOWN=${{ github.event.inputs.rps_target_3 }} \
-            --env DURATION_RAMP_DOWN=${{ github.event.inputs.duration_target_3 }}
-
-      - name: Debug - List Generated Files
-        run: ls -R results
-
-      - name: Upload k6 Report as Artifact
-        uses: actions/upload-artifact@v4
+      - name: Run ECS Task
+        uses: aws-actions/amazon-ecs-run-task@v1
         with:
-          name: k6-load-test-report
-          path: results/index_load_test.html
-          retention-days: 7
-
-  deploy-pages:
-    needs: load-test  
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download k6 Report Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: k6-load-test-report
-          path: gh-pages 
-
-      - name: Prepare Report for GitHub Pages
-        run: |
-          mv gh-pages/index_load_test.html gh-pages/index.html
-          echo "✅ Relatório pronto para publicação no GitHub Pages"
-
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: gh-pages
-          keep_files: false
+          launch-type: FARGATE
+          cluster: ${{ secrets.CLUSTER_NAME }}
+          task-definition: ${{ secrets.TASK_DEFINITION_ARN }}
+          network-configuration: awsvpcConfiguration={subnets=${{ secrets.PUBLIC_SUBNETS }},securityGroups=${{ secrets.SECURITY_GROUPS }},assignPublicIp="ENABLED"}
+          overrides: |
+            {
+              "containerOverrides": [
+                {
+                  "name": "k6",
+                  "command": [
+                    "run",
+                    "/scripts/${{ github.event.inputs.script_name }}",
+                    "--env", "RPS_RAMP_UP=${{ github.event.inputs.rps_target_1 }}",
+                    "--env", "DURATION_RAMP_UP=${{ github.event.inputs.duration_target_1 }}",
+                    "--env", "RPS_TARGET=${{ github.event.inputs.rps_target_2 }}",
+                    "--env", "DURATION_TARGET=${{ github.event.inputs.duration_target_2 }}",
+                    "--env", "RPS_RAMP_DOWN=${{ github.event.inputs.rps_target_3 }}",
+                    "--env", "DURATION_RAMP_DOWN=${{ github.event.inputs.duration_target_3 }}"
+                  ]
+                }
+              ]
+            }
