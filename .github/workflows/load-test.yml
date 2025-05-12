@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       script_name:
-        description: "Script de teste (dentro do container)"
+        description: "Script de teste"
         required: true
         default: "load-test.js"
       rps_target_1:
