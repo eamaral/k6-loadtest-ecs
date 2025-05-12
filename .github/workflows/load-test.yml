@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       script_name:
-        description: "Script de teste"
+        description: "Script de teste (dentro do container)"
         required: true
         default: "load-test.js"
       rps_target_1:
@@ -49,30 +49,37 @@ jobs:
 
       - name: Baixar .env do S3
         run: |
-          aws s3 cp s3://k6-loadtest-config/k6_infra_values.env .
+          aws s3 cp s3://k6-loadtest-config/k6_infra_values.env ./k6_infra_values.env
           cat k6_infra_values.env >> $GITHUB_ENV
 
-      - name: Executar teste via ECS
+      - name: Debug Variáveis
         run: |
-          echo "Executando teste de carga no ECS..."
-          aws ecs run-task \
-            --cluster "$CLUSTER_NAME" \
-            --launch-type FARGATE \
-            --task-definition "$TASK_DEFINITION_ARN" \
-            --network-configuration "awsvpcConfiguration={subnets=$SUBNET_IDS,assignPublicIp=\"ENABLED\"}" \
-            --overrides '{
-              "containerOverrides": [{
-                "name": "k6",
-                "command": [
-                  "run",
-                  "/scripts/${{ github.event.inputs.script_name }}",
-                  "--env", "RPS_RAMP_UP=${{ github.event.inputs.rps_target_1 }}",
-                  "--env", "DURATION_RAMP_UP=${{ github.event.inputs.duration_target_1 }}",
-                  "--env", "RPS_TARGET=${{ github.event.inputs.rps_target_2 }}",
-                  "--env", "DURATION_TARGET=${{ github.event.inputs.duration_target_2 }}",
-                  "--env", "RPS_RAMP_DOWN=${{ github.event.inputs.rps_target_3 }}",
-                  "--env", "DURATION_RAMP_DOWN=${{ github.event.inputs.duration_target_3 }}"
-                ]
-              }]
-            }'
+          echo "CLUSTER_NAME=$CLUSTER_NAME"
+          echo "TASK_DEFINITION_ARN=$TASK_DEFINITION_ARN"
+          echo "SUBNET_IDS=$SUBNET_IDS"
 
+      - name: Run ECS Task
+        uses: aws-actions/amazon-ecs-run-task@v1
+        with:
+          launch-type: FARGATE
+          cluster: ${{ env.CLUSTER_NAME }}
+          task-definition: ${{ env.TASK_DEFINITION_ARN }}
+          network-configuration: awsvpcConfiguration={subnets=${{ env.SUBNET_IDS }},assignPublicIp="ENABLED"}
+          overrides: |
+            {
+              "containerOverrides": [
+                {
+                  "name": "k6",
+                  "command": [
+                    "run",
+                    "/scripts/${{ github.event.inputs.script_name }}",
+                    "--env", "RPS_RAMP_UP=${{ github.event.inputs.rps_target_1 }}",
+                    "--env", "DURATION_RAMP_UP=${{ github.event.inputs.duration_target_1 }}",
+                    "--env", "RPS_TARGET=${{ github.event.inputs.rps_target_2 }}",
+                    "--env", "DURATION_TARGET=${{ github.event.inputs.duration_target_2 }}",
+                    "--env", "RPS_RAMP_DOWN=${{ github.event.inputs.rps_target_3 }}",
+                    "--env", "DURATION_RAMP_DOWN=${{ github.event.inputs.duration_target_3 }}"
+                  ]
+                }
+              ]
+            }
