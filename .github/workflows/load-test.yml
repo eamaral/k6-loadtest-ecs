@@ -47,16 +47,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      - name: Baixar .env do S3
+      - name: Download latest k6_infra_values.env from S3
         run: |
-          aws s3 cp s3://k6-loadtest-config/k6_infra_values.env ./k6_infra_values.env
-          cat k6_infra_values.env >> $GITHUB_ENV
+          aws s3 cp s3://k6-loadtest-config/k6_infra_values.env ./
 
-      - name: Debug Variáveis
+      - name: Export .env variables
         run: |
-          echo "CLUSTER_NAME=$CLUSTER_NAME"
-          echo "TASK_DEFINITION_ARN=$TASK_DEFINITION_ARN"
-          echo "SUBNET_IDS=$SUBNET_IDS"
+          set -a
+          source k6_infra_values.env
+          set +a
 
       - name: Run ECS Task
         uses: aws-actions/amazon-ecs-run-task@v1
