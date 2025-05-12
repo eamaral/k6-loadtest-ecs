@@ -35,7 +35,6 @@ on:
 jobs:
   run-load-test:
     runs-on: ubuntu-latest
-    environment: production
 
     steps:
       - name: Checkout
@@ -48,28 +47,32 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      - name: Run ECS Task
-        uses: aws-actions/amazon-ecs-run-task@v1
-        with:
-          launch-type: FARGATE
-          cluster: ${{ secrets.CLUSTER_NAME }}
-          task-definition: ${{ secrets.TASK_DEFINITION_ARN }}
-          network-configuration: awsvpcConfiguration={subnets=${{ secrets.PUBLIC_SUBNETS }},securityGroups=${{ secrets.SECURITY_GROUPS }},assignPublicIp="ENABLED"}
-          overrides: |
-            {
-              "containerOverrides": [
-                {
-                  "name": "k6",
-                  "command": [
-                    "run",
-                    "/scripts/${{ github.event.inputs.script_name }}",
-                    "--env", "RPS_RAMP_UP=${{ github.event.inputs.rps_target_1 }}",
-                    "--env", "DURATION_RAMP_UP=${{ github.event.inputs.duration_target_1 }}",
-                    "--env", "RPS_TARGET=${{ github.event.inputs.rps_target_2 }}",
-                    "--env", "DURATION_TARGET=${{ github.event.inputs.duration_target_2 }}",
-                    "--env", "RPS_RAMP_DOWN=${{ github.event.inputs.rps_target_3 }}",
-                    "--env", "DURATION_RAMP_DOWN=${{ github.event.inputs.duration_target_3 }}"
-                  ]
-                }
-              ]
-            }
+      - name: Baixar .env do S3
+        run: |
+          aws s3 cp s3://k6-loadtest-config/k6_infra_values.env .
+          cat k6_infra_values.env >> $GITHUB_ENV
+
+      - name: Executar teste via ECS
+        run: |
+          echo "⏳ Executando teste de carga no ECS..."
+          aws ecs run-task \
+            --cluster "$CLUSTER_NAME" \
+            --launch-type FARGATE \
+            --task-definition "$TASK_DEFINITION_ARN" \
+            --network-configuration "awsvpcConfiguration={subnets=$SUBNET_IDS,assignPublicIp=\"ENABLED\"}" \
+            --overrides '{
+              "containerOverrides": [{
+                "name": "k6",
+                "command": [
+                  "run",
+                  "/scripts/${{ github.event.inputs.script_name }}",
+                  "--env", "RPS_RAMP_UP=${{ github.event.inputs.rps_target_1 }}",
+                  "--env", "DURATION_RAMP_UP=${{ github.event.inputs.duration_target_1 }}",
+                  "--env", "RPS_TARGET=${{ github.event.inputs.rps_target_2 }}",
+                  "--env", "DURATION_TARGET=${{ github.event.inputs.duration_target_2 }}",
+                  "--env", "RPS_RAMP_DOWN=${{ github.event.inputs.rps_target_3 }}",
+                  "--env", "DURATION_RAMP_DOWN=${{ github.event.inputs.duration_target_3 }}"
+                ]
+              }]
+            }'
+
