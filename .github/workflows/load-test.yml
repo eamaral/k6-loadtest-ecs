@@ -54,7 +54,7 @@ jobs:
 
       - name: Executar teste via ECS
         run: |
-          echo "⏳ Executando teste de carga no ECS..."
+          echo "Executando teste de carga no ECS..."
           aws ecs run-task \
             --cluster "$CLUSTER_NAME" \
             --launch-type FARGATE \
