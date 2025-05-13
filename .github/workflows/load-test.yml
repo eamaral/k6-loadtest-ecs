@@ -58,7 +58,7 @@ jobs:
           set +a
 
       - name: Run ECS Task
-        uses: aws-actions/amazon-ecs-run-task@v1
+        uses: aws-actions/amazon-ecs-run-task@v2
         with:
           launch-type: FARGATE
           cluster: ${{ env.CLUSTER_NAME }}
