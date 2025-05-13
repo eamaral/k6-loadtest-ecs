@@ -1,10 +1,10 @@
-name: Run k6 Load Test on ECS
+name: Load Test with k6 (via ECS Fargate)
 
 on:
   workflow_dispatch:
     inputs:
       script_name:
-        description: "Script de teste (dentro do container)"
+        description: "Nome do script (não usado na task ECS diretamente)"
         required: true
         default: "load-test.js"
       rps_target_1:
@@ -12,7 +12,7 @@ on:
         required: true
         default: "1"
       duration_target_1:
-        description: "Duração RAMP_UP"
+        description: "Duração RAMP_UP (ex: 30s)"
         required: true
         default: "3s"
       rps_target_2:
@@ -20,7 +20,7 @@ on:
         required: true
         default: "3"
       duration_target_2:
-        description: "Duração TARGET"
+        description: "Duração TARGET (ex: 5m)"
         required: true
         default: "10s"
       rps_target_3:
@@ -28,16 +28,18 @@ on:
         required: true
         default: "1"
       duration_target_3:
-        description: "Duração RAMP_DOWN"
+        description: "Duração RAMP_DOWN (ex: 30s)"
         required: true
         default: "3s"
 
 permissions:
-  contents: read
+  id-token: write
+  contents: write
 
 jobs:
-  run-k6-ecs:
-    runs-on: ubuntu-latest
+  k6-loadtest:
+    name: Disparar Load Test no ECS Fargate
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout repositório
@@ -46,44 +48,47 @@ jobs:
       - name: Configurar credenciais AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_DEV }}:role/ze-catalog-service-load-test
+          role-session-name: ze-catalog-service-load-test
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
 
-      - name: Baixar .env do S3
-        run: aws s3 cp s3://k6-loadtest-config/k6_infra_values.env .
-
-      - name: Carregar variáveis manualmente
-        id: vars
+      - name: Baixar variáveis da infra do S3 (.env)
         run: |
-          CLUSTER_NAME=$(grep '^CLUSTER_NAME=' k6_infra_values.env | cut -d '=' -f2-)
-          TASK_DEF=$(grep '^TASK_DEFINITION_ARN=' k6_infra_values.env | cut -d '=' -f2-)
-          SUBNET_IDS=$(grep '^SUBNET_IDS=' k6_infra_values.env | cut -d '=' -f2- | tr -d '[]" ')
-          echo "CLUSTER_NAME=$CLUSTER_NAME" >> "$GITHUB_ENV"
-          echo "TASK_DEFINITION_ARN=$TASK_DEF" >> "$GITHUB_ENV"
-          echo "SUBNET_IDS=$SUBNET_IDS" >> "$GITHUB_ENV"
+          aws s3 cp s3://k6-loadtest-config/k6_infra_values.env k6_infra_values.env
+          cat k6_infra_values.env >> $GITHUB_ENV
+          echo "✅ Variáveis carregadas do S3"
 
-      - name: Executar k6 no ECS
+      - name: Disparar Task no ECS com k6
         run: |
+          echo "Iniciando execução da task ECS Fargate..."
           aws ecs run-task \
             --cluster "$CLUSTER_NAME" \
             --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=${SUBNET_IDS},assignPublicIp=ENABLED}" \
             --task-definition "$TASK_DEFINITION_ARN" \
-            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_IDS],assignPublicIp=ENABLED}" \
             --overrides '{
-              "containerOverrides": [
-                {
-                  "name": "k6",
-                  "command": [
-                    "run",
-                    "/scripts/${{ github.event.inputs.script_name }}",
-                    "--env", "RPS_RAMP_UP=${{ github.event.inputs.rps_target_1 }}",
-                    "--env", "DURATION_RAMP_UP=${{ github.event.inputs.duration_target_1 }}",
-                    "--env", "RPS_TARGET=${{ github.event.inputs.rps_target_2 }}",
-                    "--env", "DURATION_TARGET=${{ github.event.inputs.duration_target_2 }}",
-                    "--env", "RPS_RAMP_DOWN=${{ github.event.inputs.rps_target_3 }}",
-                    "--env", "DURATION_RAMP_DOWN=${{ github.event.inputs.duration_target_3 }}"
-                  ]
-                }
-              ]
+              "containerOverrides": [{
+                "name": "k6",
+                "environment": [
+                  {"name": "RPS_RAMP_UP", "value": "'"${{ github.event.inputs.rps_target_1 }}"'"},
+                  {"name": "DURATION_RAMP_UP", "value": "'"${{ github.event.inputs.duration_target_1 }}"'"},
+                  {"name": "RPS_TARGET", "value": "'"${{ github.event.inputs.rps_target_2 }}"'"},
+                  {"name": "DURATION_TARGET", "value": "'"${{ github.event.inputs.duration_target_2 }}"'"},
+                  {"name": "RPS_RAMP_DOWN", "value": "'"${{ github.event.inputs.rps_target_3 }}"'"},
+                  {"name": "DURATION_RAMP_DOWN", "value": "'"${{ github.event.inputs.duration_target_3 }}"'}
+                ]
+              }]
             }'
+
+      - name: Aguardar finalização e baixar HTML do S3
+        run: |
+          echo "⏳ Aguardando 90 segundos para conclusão da task e upload do report..."
+          sleep 90
+          aws s3 cp s3://k6-loadtest-report/index_load_test.html index_load_test.html
+
+      - name: Upload do relatório como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-loadtest-report
+          path: index_load_test.html
+          retention-days: 7
