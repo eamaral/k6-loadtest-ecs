@@ -89,11 +89,20 @@ jobs:
             "${{ github.event.inputs.rps_target_3 }}" \
             "${{ github.event.inputs.duration_target_3 }}"
 
-      - name: Aguardar finalização e baixar HTML do S3
+      - name: Baixar HTML do S3 após conclusão
         run: |
-          echo "Aguardando 30 segundos para conclusão da task..."
-          sleep 30
-          aws s3 cp s3://k6-loadtest-report/index_load_test.html index_load_test.html
+            echo "Verificando se HTML foi gerado..."
+            for i in {1..20}; do
+            if aws s3 ls s3://k6-loadtest-report/index_load_test.html > /dev/null 2>&1; then
+                aws s3 cp s3://k6-loadtest-report/index_load_test.html index_load_test.html
+                exit 0
+            fi
+            echo "Aguardando HTML... ($i)"
+            sleep 3
+            done
+            echo "Erro: Relatório não encontrado após aguardar a task."
+            exit 1
+          
 
       - name: Upload do relatório como artifact
         uses: actions/upload-artifact@v4

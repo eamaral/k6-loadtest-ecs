@@ -1,23 +1,23 @@
 #!/bin/bash
 set -e
 
-echo "Executando teste com k6..."
+echo "[INFO] Iniciando execução do teste com k6..."
 
-mkdir -p /tmp/results
+# Cria diretório para o relatório
+mkdir -p /home/k6/results || mkdir -p /results || echo "[WARN] Falha ao criar pasta results, tentando mesmo assim..."
 
+# Executa o teste
 k6 run /scripts/load-test.js \
   --env RPS_RAMP_UP="${RPS_RAMP_UP}" \
   --env DURATION_RAMP_UP="${DURATION_RAMP_UP}" \
   --env RPS_TARGET="${RPS_TARGET}" \
   --env DURATION_TARGET="${DURATION_TARGET}" \
   --env RPS_RAMP_DOWN="${RPS_RAMP_DOWN}" \
-  --env DURATION_RAMP_DOWN="${DURATION_RAMP_DOWN}" \
-  --summary-export=/tmp/results/summary.json
+  --env DURATION_RAMP_DOWN="${DURATION_RAMP_DOWN}"
 
-echo "Gerando HTML com k6-reporter..."
-npx k6-reporter /tmp/results/summary.json /tmp/results/index_load_test.html
+echo "[INFO] Teste concluído. Procurando relatório HTML..."
 
-echo "Enviando HTML para o S3..."
-aws s3 cp /tmp/results/index_load_test.html s3://k6-loadtest-report/index_load_test.html
-
-echo "Teste finalizado com sucesso."
+# Upload do relatório
+aws s3 cp /home/k6/results/index_load_test.html s3://k6-loadtest-report/index_load_test.html || \
+aws s3 cp /results/index_load_test.html s3://k6-loadtest-report/index_load_test.html || \
+echo "[ERRO] Relatório não encontrado. Verifique se foi gerado corretamente."

@@ -44,8 +44,9 @@ export default function () {
 
 // Geração do relatório HTML
 export function handleSummary(data) {
-    const fileName = "/tmp/results/index_load_test.html";
+    const fileName = "/home/k6/results/index_load_test.html";
     return {
         [fileName]: htmlReport(data),
     };
 }
+

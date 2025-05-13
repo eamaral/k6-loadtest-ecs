@@ -15,10 +15,10 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-# Corrige SUBNET_IDS para formato aceito pelo ECS CLI
-SUBNET_IDS=$(echo "$SUBNET_IDS" | jq -r '. | join(",")')
+# Corrige SUBNET_IDS para formato aceito
+SUBNETS=$(echo "$SUBNET_IDS" | jq -r '. | join(",")')
 
-# Constrói overrides em JSON
+# Constrói overrides
 overrides=$(cat <<EOF
 {
   "containerOverrides": [{
@@ -36,10 +36,27 @@ overrides=$(cat <<EOF
 EOF
 )
 
-# Executa a task
-aws ecs run-task \
+echo "⏳ Iniciando task no ECS..."
+TASK_ARN=$(aws ecs run-task \
   --cluster "$CLUSTER_NAME" \
   --launch-type FARGATE \
-  --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_IDS],assignPublicIp=ENABLED}" \
+  --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],assignPublicIp=ENABLED}" \
   --task-definition "$TASK_DEFINITION_ARN" \
-  --overrides "$overrides"
+  --overrides "$overrides" \
+  --query "tasks[0].taskArn" \
+  --output text)
+
+echo "✅ Task iniciada: $TASK_ARN"
+
+echo "⏳ Aguardando task finalizar..."
+while true; do
+  STATUS=$(aws ecs describe-tasks --cluster "$CLUSTER_NAME" --tasks "$TASK_ARN" \
+    --query "tasks[0].lastStatus" --output text)
+  echo "Status atual: $STATUS"
+  if [ "$STATUS" == "STOPPED" ]; then
+    break
+  fi
+  sleep 5
+done
+
+echo "✅ Task finalizada. Continuando workflow..."
