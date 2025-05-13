@@ -89,20 +89,36 @@ jobs:
             "${{ github.event.inputs.rps_target_3 }}" \
             "${{ github.event.inputs.duration_target_3 }}"
 
-      - name: Baixar HTML do S3 após conclusão
+      - name: Aguardar conclusão da task e baixar HTML do S3
         run: |
-            echo "Verificando se HTML foi gerado..."
-            for i in {1..20}; do
+          echo "Aguardando finalização da task ECS..."
+          TASK_ARN=$(aws ecs list-tasks --cluster "$CLUSTER_NAME" --desired-status RUNNING --output text --query "taskArns[0]")
+          if [ -z "$TASK_ARN" ]; then
+            echo "Erro: Nenhuma task encontrada."
+            exit 1
+          fi
+
+          for i in {1..30}; do
+            STATUS=$(aws ecs describe-tasks --cluster "$CLUSTER_NAME" --tasks "$TASK_ARN" --query "tasks[0].lastStatus" --output text)
+            echo "Status atual: $STATUS"
+            if [ "$STATUS" = "STOPPED" ]; then
+              break
+            fi
+            sleep 5
+          done
+
+          echo "Verificando se HTML foi gerado..."
+          for i in {1..10}; do
             if aws s3 ls s3://k6-loadtest-report/index_load_test.html > /dev/null 2>&1; then
-                aws s3 cp s3://k6-loadtest-report/index_load_test.html index_load_test.html
-                exit 0
+              aws s3 cp s3://k6-loadtest-report/index_load_test.html index_load_test.html
+              exit 0
             fi
             echo "Aguardando HTML... ($i)"
             sleep 3
-            done
-            echo "Erro: Relatório não encontrado após aguardar a task."
-            exit 1
-          
+          done
+
+          echo "Erro: Relatório não encontrado."
+          exit 1
 
       - name: Upload do relatório como artifact
         uses: actions/upload-artifact@v4
