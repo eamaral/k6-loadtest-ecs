@@ -91,8 +91,8 @@ jobs:
 
       - name: Aguardar finalização e baixar HTML do S3
         run: |
-          echo "Aguardando 90 segundos para conclusão da task..."
-          sleep 90
+          echo "Aguardando 30 segundos para conclusão da task..."
+          sleep 30
           aws s3 cp s3://k6-loadtest-report/index_load_test.html index_load_test.html
 
       - name: Upload do relatório como artifact
