@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+# Recebe os parâmetros do workflow
 export RPS_RAMP_UP=$1
 export DURATION_RAMP_UP=$2
 export RPS_TARGET=$3
@@ -8,6 +9,16 @@ export DURATION_TARGET=$4
 export RPS_RAMP_DOWN=$5
 export DURATION_RAMP_DOWN=$6
 
+# Verifica dependência
+if ! command -v jq >/dev/null 2>&1; then
+  echo "jq é necessário, mas não está instalado."
+  exit 1
+fi
+
+# Corrige SUBNET_IDS para formato aceito pelo ECS CLI
+SUBNET_IDS=$(echo "$SUBNET_IDS" | jq -r '. | join(",")')
+
+# Constrói overrides em JSON
 overrides=$(cat <<EOF
 {
   "containerOverrides": [{
@@ -25,9 +36,10 @@ overrides=$(cat <<EOF
 EOF
 )
 
+# Executa a task
 aws ecs run-task \
   --cluster "$CLUSTER_NAME" \
   --launch-type FARGATE \
-  --network-configuration "awsvpcConfiguration={subnets=${SUBNET_IDS},assignPublicIp=ENABLED}" \
+  --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_IDS],assignPublicIp=ENABLED}" \
   --task-definition "$TASK_DEFINITION_ARN" \
   --overrides "$overrides"
