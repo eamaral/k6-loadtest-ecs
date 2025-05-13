@@ -1,5 +1,8 @@
 FROM grafana/k6:latest
 
+# Muda para root para instalar pacotes
+USER root
+
 # Instala curl, bash e ferramentas necessárias
 RUN apk add --no-cache curl bash
 
@@ -7,6 +10,10 @@ RUN apk add --no-cache curl bash
 COPY load-test.js /scripts/load-test.js
 COPY entrypoint.sh /entrypoint.sh
 
-# Permissão e entrypoint
+# Permissão
 RUN chmod +x /entrypoint.sh
+
+# Volta para o usuário padrão do k6
+USER 1000
+
 ENTRYPOINT ["/entrypoint.sh"]
