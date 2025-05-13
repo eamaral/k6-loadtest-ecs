@@ -55,7 +55,7 @@ jobs:
       - name: Login no ECR
         run: |
           aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
-    
+
       - name: Garantir que o repositório ECR exista
         run: |
           aws ecr describe-repositories --repository-names "$ECR_REPOSITORY" --region "$AWS_REGION" > /dev/null 2>&1 || \
@@ -76,7 +76,7 @@ jobs:
           aws s3 cp s3://k6-loadtest-config/k6_infra_values.env k6_infra_values.env
           cat k6_infra_values.env >> $GITHUB_ENV
 
-            - name: Disparar Task no ECS com k6
+      - name: Disparar Task no ECS com k6
         run: |
           aws ecs run-task \
             --cluster "$CLUSTER_NAME" \
@@ -100,10 +100,9 @@ jobs:
             EOF
             )"
 
-
       - name: Aguardar finalização e baixar HTML do S3
         run: |
-          echo "⏳ Aguardando 90 segundos para conclusão da task e upload do report..."
+          echo "Aguardando 90 segundos para conclusão da task..."
           sleep 90
           aws s3 cp s3://k6-loadtest-report/index_load_test.html index_load_test.html
 
