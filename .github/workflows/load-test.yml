@@ -1,4 +1,4 @@
-name: Load Test with k6 on ECS
+name: Run k6 Load Test on ECS
 
 on:
   workflow_dispatch:
@@ -33,36 +33,43 @@ on:
         default: "3s"
 
 permissions:
-  id-token: write
-  contents: write
+  contents: read
 
 jobs:
-  load-test:
-    runs-on: ubuntu-22.04
+  run-k6-ecs:
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repositório
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configurar credenciais AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      - name: Download k6_infra_values.env from S3
-        run: |
-          aws s3 cp s3://k6-loadtest-config/k6_infra_values.env .
-          source ./k6_infra_values.env
+      - name: Baixar .env do S3
+        run: aws s3 cp s3://k6-loadtest-config/k6_infra_values.env .
 
-      - name: Run k6 task on ECS
+      - name: Carregar variáveis manualmente
+        id: vars
+        run: |
+          CLUSTER_NAME=$(grep '^CLUSTER_NAME=' k6_infra_values.env | cut -d '=' -f2-)
+          TASK_DEF=$(grep '^TASK_DEFINITION_ARN=' k6_infra_values.env | cut -d '=' -f2-)
+          SUBNET_IDS=$(grep '^SUBNET_IDS=' k6_infra_values.env | cut -d '=' -f2- | tr -d '[]" ')
+          echo "CLUSTER_NAME=$CLUSTER_NAME" >> "$GITHUB_ENV"
+          echo "TASK_DEFINITION_ARN=$TASK_DEF" >> "$GITHUB_ENV"
+          echo "SUBNET_IDS=$SUBNET_IDS" >> "$GITHUB_ENV"
+
+      - name: Executar k6 no ECS
         run: |
           aws ecs run-task \
             --cluster "$CLUSTER_NAME" \
             --launch-type FARGATE \
             --task-definition "$TASK_DEFINITION_ARN" \
-            --network-configuration "awsvpcConfiguration={subnets=$SUBNET_IDS,assignPublicIp=ENABLED}" \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_IDS],assignPublicIp=ENABLED}" \
             --overrides '{
               "containerOverrides": [
                 {
@@ -80,41 +87,3 @@ jobs:
                 }
               ]
             }'
-
-      - name: Upload Report (optional)
-        if: always()
-        run: |
-          mkdir -p results
-          echo "<html><body><h1>Relatório gerado pela task ECS</h1></body></html>" > results/index_load_test.html
-
-      - name: Upload k6 Report as Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: k6-load-test-report
-          path: results/index_load_test.html
-          retention-days: 7
-
-  deploy-pages:
-    needs: load-test
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download k6 Report Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: k6-load-test-report
-          path: gh-pages 
-
-      - name: Prepare Report for GitHub Pages
-        run: |
-          mv gh-pages/index_load_test.html gh-pages/index.html
-
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: gh-pages
-          keep_files: false
